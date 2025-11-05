@@ -20,9 +20,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const [clipRegion, setClipRegion] = useState(null)
   const [clipImageData, setClipImageData] = useState(null)
   const [clipRotation, setClipRotation] = useState(0)
-  const [clipScale, setClipScale] = useState(100)
+  const [clipScaleX, setClipScaleX] = useState(100)
+  const [clipScaleY, setClipScaleY] = useState(100)
   const [clipOffsetX, setClipOffsetX] = useState(0)
   const [clipOffsetY, setClipOffsetY] = useState(0)
+  const [aspectRatioLocked, setAspectRatioLocked] = useState(true)
 
   const CANVAS_SIZE = 512
   const MIN_CLIP_SIZE = 32
@@ -43,7 +45,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (baseImage && canvasRef.current) {
       drawCanvas()
     }
-  }, [baseImage, rotation, scale, clipRect, isClipMode, isEditingClip, clipRotation, clipScale, clipOffsetX, clipOffsetY])
+  }, [baseImage, rotation, scale, clipRect, isClipMode, isEditingClip, clipRotation, clipScaleX, clipScaleY, clipOffsetX, clipOffsetY])
 
   const drawCanvas = () => {
     const canvas = canvasRef.current
@@ -135,9 +137,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       // Rotate
       ctx.rotate((clipRotation * Math.PI) / 180)
 
-      // Scale
-      const scaleFactor = clipScale / 100
-      ctx.scale(scaleFactor, scaleFactor)
+      // Scale (separate X and Y)
+      const scaleFactorX = clipScaleX / 100
+      const scaleFactorY = clipScaleY / 100
+      ctx.scale(scaleFactorX, scaleFactorY)
 
       // Draw clip image centered
       ctx.drawImage(clipImg, -clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
@@ -148,7 +151,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       ctx.save()
       ctx.translate(centerX, centerY)
       ctx.rotate((clipRotation * Math.PI) / 180)
-      ctx.scale(scaleFactor, scaleFactor)
+      ctx.scale(scaleFactorX, scaleFactorY)
       ctx.strokeStyle = '#10B981'
       ctx.lineWidth = 2
       ctx.setLineDash([5, 5])
@@ -175,11 +178,19 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setScale(Number(e.target.value))
   }
 
-  const handleRotationChange = (e) => {
-    if (isEditingClip) {
-      setClipRotation(Number(e.target.value))
-    } else {
-      setRotation(Number(e.target.value))
+  const handleClipScaleXChange = (e) => {
+    const newScaleX = Number(e.target.value)
+    setClipScaleX(newScaleX)
+    if (aspectRatioLocked) {
+      setClipScaleY(newScaleX)
+    }
+  }
+
+  const handleClipScaleYChange = (e) => {
+    const newScaleY = Number(e.target.value)
+    setClipScaleY(newScaleY)
+    if (aspectRatioLocked) {
+      setClipScaleX(newScaleY)
     }
   }
 
@@ -270,9 +281,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       // Enter editing mode
       setIsEditingClip(true)
       setClipRotation(0)
-      setClipScale(100)
+      setClipScaleX(100)
+      setClipScaleY(100)
       setClipOffsetX(0)
       setClipOffsetY(0)
+      setAspectRatioLocked(true)
+      setClipRect(null) // Clear selection rectangle
     } catch (error) {
       console.error('Clip error:', error)
       onError('クリッピング処理に失敗しました')
@@ -315,8 +329,9 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         finalCtx.translate(centerX, centerY)
         finalCtx.rotate((clipRotation * Math.PI) / 180)
 
-        const scaleFactor = clipScale / 100
-        finalCtx.scale(scaleFactor, scaleFactor)
+        const scaleFactorX = clipScaleX / 100
+        const scaleFactorY = clipScaleY / 100
+        finalCtx.scale(scaleFactorX, scaleFactorY)
 
         finalCtx.drawImage(clipImg, -clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
 
@@ -326,7 +341,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         const newImageData = finalCanvas.toDataURL('image/png')
         setBaseImage(newImageData)
 
-        // Reset clip mode
+        // Reset clip mode completely
         setIsClipMode(false)
         setIsEditingClip(false)
         setClipRect(null)
@@ -514,17 +529,49 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                 />
               </div>
 
-              {/* Scale Slider */}
+              {/* Aspect Ratio Lock Toggle */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setAspectRatioLocked(!aspectRatioLocked)}
+                  className={`px-4 py-2 rounded transition text-sm ${
+                    aspectRatioLocked
+                      ? 'bg-blue-500 text-white hover:bg-blue-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                >
+                  {aspectRatioLocked ? '🔒 アスペクト比固定' : '🔓 アスペクト比解除'}
+                </button>
+                <span className="text-xs text-gray-600">
+                  {aspectRatioLocked ? '縦横連動' : '縦横個別調整'}
+                </span>
+              </div>
+
+              {/* Scale X Slider */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  拡大縮小: {clipScale}%
+                  横拡大縮小: {clipScaleX}%
                 </label>
                 <input
                   type="range"
                   min="10"
                   max="300"
-                  value={clipScale}
-                  onChange={(e) => setClipScale(Number(e.target.value))}
+                  value={clipScaleX}
+                  onChange={handleClipScaleXChange}
+                  className="w-full"
+                />
+              </div>
+
+              {/* Scale Y Slider */}
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">
+                  縦拡大縮小: {clipScaleY}%
+                </label>
+                <input
+                  type="range"
+                  min="10"
+                  max="300"
+                  value={clipScaleY}
+                  onChange={handleClipScaleYChange}
                   className="w-full"
                 />
               </div>
