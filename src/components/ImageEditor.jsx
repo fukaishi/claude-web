@@ -493,8 +493,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
             <div className="flex gap-2">
               <button
                 onClick={handleSave}
-                disabled={isClipMode}
-                className={`flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition font-medium ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition font-medium"
               >
                 保存
               </button>
@@ -508,7 +507,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
             {isClipMode && (
               <p className="text-xs text-orange-600">
-                ⚠ クリッピングモード中は全体の回転・拡大縮小・保存が無効です
+                ⚠ クリッピングモード中は全体の回転・拡大縮小が無効です
               </p>
             )}
           </>
@@ -619,6 +618,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                   編集を完了
                 </button>
                 <button
+                  onClick={handleSave}
+                  className="flex-1 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition font-medium"
+                >
+                  保存
+                </button>
+                <button
                   onClick={cancelClipEdit}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
                 >
@@ -627,7 +632,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               </div>
 
               <p className="text-xs text-gray-600">
-                ※ 「編集を完了」をクリックすると元の画像に合成されます
+                ※ 「編集を完了」で元画像に合成 / 「保存」で編集中の状態を保存
               </p>
             </div>
           </>
