@@ -67,6 +67,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
     img.onload = () => {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+      ctx.setLineDash([]) // Reset line dash to solid
 
       // Fill with white background
       ctx.fillStyle = '#FFFFFF'
@@ -116,6 +117,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
     const renderClipEdit = () => {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+      ctx.setLineDash([]) // Reset line dash to solid
 
       // Fill with white background
       ctx.fillStyle = '#FFFFFF'
