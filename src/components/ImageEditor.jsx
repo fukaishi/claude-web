@@ -26,6 +26,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const [clipOffsetY, setClipOffsetY] = useState(0)
   const [aspectRatioLocked, setAspectRatioLocked] = useState(true)
 
+  // Transparency selection states
+  const [isSelectingTransparency, setIsSelectingTransparency] = useState(false)
+  const [transparencyColor, setTransparencyColor] = useState(null)
+  const [transparencyThreshold, setTransparencyThreshold] = useState(30)
+
   const CANVAS_SIZE = 512
   const MIN_CLIP_SIZE = 32
 
@@ -45,7 +50,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (baseImage && canvasRef.current) {
       drawCanvas()
     }
-  }, [baseImage, rotation, scale, clipRect, isClipMode, isEditingClip, clipRotation, clipScaleX, clipScaleY, clipOffsetX, clipOffsetY])
+  }, [baseImage, rotation, scale, clipRect, isClipMode, isEditingClip, clipRotation, clipScaleX, clipScaleY, clipOffsetX, clipOffsetY, isSelectingTransparency, transparencyColor])
 
   const drawCanvas = () => {
     const canvas = canvasRef.current
@@ -53,13 +58,71 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
     const ctx = canvas.getContext('2d')
 
-    if (isEditingClip && originalImage && clipImageData) {
+    if (isSelectingTransparency && clipImageData && clipRegion) {
+      // Transparency color selection mode
+      drawTransparencySelectionMode(ctx)
+    } else if (isEditingClip && originalImage && clipImageData) {
       // Editing clip mode: show original + transformed clip region
       drawClipEditMode(ctx)
     } else {
       // Normal mode or clip selection mode
       drawNormalMode(ctx)
     }
+  }
+
+  const drawTransparencySelectionMode = (ctx) => {
+    const originalImg = new Image()
+    const clipImg = new Image()
+
+    let imagesLoaded = 0
+    const checkAllLoaded = () => {
+      imagesLoaded++
+      if (imagesLoaded === 2) {
+        renderTransparencySelection()
+      }
+    }
+
+    const renderTransparencySelection = () => {
+      ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+      // Fill with white background
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+      // Draw original image as background (dimmed)
+      ctx.globalAlpha = 0.3
+      ctx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+      ctx.globalAlpha = 1.0
+
+      // Draw clip region at its original position for color selection
+      ctx.drawImage(clipImg, clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+
+      // Draw border around clip region
+      ctx.strokeStyle = '#F59E0B'
+      ctx.lineWidth = 3
+      ctx.setLineDash([5, 5])
+      ctx.strokeRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+      ctx.setLineDash([])
+
+      // Show selected transparency color if any
+      if (transparencyColor) {
+        const { r, g, b } = transparencyColor
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
+        ctx.fillRect(10, 10, 50, 50)
+        ctx.strokeStyle = '#000000'
+        ctx.lineWidth = 2
+        ctx.strokeRect(10, 10, 50, 50)
+
+        ctx.fillStyle = '#000000'
+        ctx.font = '12px sans-serif'
+        ctx.fillText('透過色', 70, 35)
+      }
+    }
+
+    originalImg.onload = checkAllLoaded
+    clipImg.onload = checkAllLoaded
+    originalImg.src = originalImage
+    clipImg.src = clipImageData
   }
 
   const drawNormalMode = (ctx) => {
@@ -208,16 +271,108 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const handleMouseDown = (e) => {
-    if (!isClipMode || isEditingClip) return
-
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
     const x = e.clientX - rect.left
     const y = e.clientY - rect.top
 
+    // Transparency color selection mode
+    if (isSelectingTransparency) {
+      handleTransparencyColorClick(x, y)
+      return
+    }
+
+    // Clip selection mode
+    if (!isClipMode || isEditingClip) return
+
     setIsDragging(true)
     setDragStart({ x, y })
     setClipRect({ x, y, width: 0, height: 0 })
+  }
+
+  const handleTransparencyColorClick = (x, y) => {
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+
+    // Get pixel color at clicked position
+    const imageData = ctx.getImageData(x, y, 1, 1)
+    const [r, g, b] = imageData.data
+
+    setTransparencyColor({ r, g, b })
+  }
+
+  const applyTransparency = () => {
+    if (!transparencyColor || !clipImageData) return
+
+    try {
+      const img = new Image()
+      img.onload = () => {
+        // Create canvas for transparency processing
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = clipRegion.width
+        tempCanvas.height = clipRegion.height
+        const tempCtx = tempCanvas.getContext('2d')
+
+        // Draw clip image
+        tempCtx.drawImage(img, 0, 0)
+
+        // Get image data
+        const imageData = tempCtx.getImageData(0, 0, clipRegion.width, clipRegion.height)
+        const data = imageData.data
+
+        // Calculate color distance and apply transparency
+        const { r: targetR, g: targetG, b: targetB } = transparencyColor
+        const threshold = transparencyThreshold
+
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i]
+          const g = data[i + 1]
+          const b = data[i + 2]
+
+          // Calculate Euclidean distance in RGB space
+          const distance = Math.sqrt(
+            Math.pow(r - targetR, 2) +
+            Math.pow(g - targetG, 2) +
+            Math.pow(b - targetB, 2)
+          )
+
+          // If within threshold, make transparent
+          if (distance <= threshold) {
+            data[i + 3] = 0 // Set alpha to 0
+          }
+        }
+
+        // Put processed image data back
+        tempCtx.putImageData(imageData, 0, 0)
+
+        // Update clipImageData with transparency applied
+        setClipImageData(tempCanvas.toDataURL('image/png'))
+
+        // Enter editing mode
+        enterEditMode()
+      }
+
+      img.src = clipImageData
+    } catch (error) {
+      console.error('Transparency error:', error)
+      onError('透過処理に失敗しました')
+    }
+  }
+
+  const skipTransparency = () => {
+    // Skip transparency and go directly to edit mode
+    enterEditMode()
+  }
+
+  const enterEditMode = () => {
+    setIsSelectingTransparency(false)
+    setIsEditingClip(true)
+    setClipRotation(0)
+    setClipScaleX(100)
+    setClipScaleY(100)
+    setClipOffsetX(0)
+    setClipOffsetY(0)
+    setAspectRatioLocked(true)
   }
 
   const handleMouseMove = (e) => {
@@ -300,14 +455,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         setClipRegion(clipRect)
         setClipImageData(tempCanvas.toDataURL('image/png'))
 
-        // Enter editing mode
-        setIsEditingClip(true)
-        setClipRotation(0)
-        setClipScaleX(100)
-        setClipScaleY(100)
-        setClipOffsetX(0)
-        setClipOffsetY(0)
-        setAspectRatioLocked(true)
+        // Enter transparency selection mode
+        setIsSelectingTransparency(true)
+        setTransparencyColor(null)
+        setTransparencyThreshold(30)
         setClipRect(null) // Clear selection rectangle
       }
 
@@ -502,7 +653,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           ref={canvasRef}
           width={CANVAS_SIZE}
           height={CANVAS_SIZE}
-          className={`border border-gray-300 rounded ${isClipMode && !isEditingClip ? 'cursor-crosshair' : 'cursor-default'}`}
+          className={`border border-gray-300 rounded ${
+            isSelectingTransparency ? 'cursor-pointer' :
+            isClipMode && !isEditingClip ? 'cursor-crosshair' :
+            'cursor-default'
+          }`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -512,7 +667,63 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
       {/* Controls */}
       <div className="space-y-4">
-        {!isEditingClip ? (
+        {isSelectingTransparency ? (
+          <>
+            {/* Transparency Selection Mode Controls */}
+            <div className="bg-orange-50 border border-orange-200 rounded p-4 space-y-4">
+              <h3 className="font-semibold text-orange-800">透過色を選択</h3>
+
+              <p className="text-sm text-gray-700">
+                透過したい色をクリックして選択してください（例：白背景）
+              </p>
+
+              {transparencyColor && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-12 h-12 border-2 border-black rounded"
+                      style={{ backgroundColor: `rgb(${transparencyColor.r}, ${transparencyColor.g}, ${transparencyColor.b})` }}
+                    ></div>
+                    <span className="text-sm text-gray-700">
+                      選択された色: RGB({transparencyColor.r}, {transparencyColor.g}, {transparencyColor.b})
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">
+                      許容範囲: {transparencyThreshold}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={transparencyThreshold}
+                      onChange={(e) => setTransparencyThreshold(Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500">
+                      値が大きいほど、似た色も透過されます
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={applyTransparency}
+                    className="w-full px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600 transition font-medium"
+                  >
+                    透過を適用して編集モードへ
+                  </button>
+                </>
+              )}
+
+              <button
+                onClick={skipTransparency}
+                className="w-full px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
+              >
+                透過処理をスキップ
+              </button>
+            </div>
+          </>
+        ) : !isEditingClip ? (
           <>
             {/* Normal Mode Controls */}
             <div className="flex items-center gap-2">
