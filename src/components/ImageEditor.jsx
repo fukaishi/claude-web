@@ -70,6 +70,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const drawTransparencySelectionMode = (ctx) => {
+    if (!pendingClipData) return
+
     const originalImg = new Image()
     const clipImg = new Image()
 
@@ -94,34 +96,40 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       ctx.globalAlpha = 1.0
 
       // Draw clip region at its original position for color selection
-      ctx.drawImage(clipImg, clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+      ctx.drawImage(clipImg, pendingClipData.region.x, pendingClipData.region.y, pendingClipData.region.width, pendingClipData.region.height)
 
       // Draw border around clip region
       ctx.strokeStyle = '#F59E0B'
       ctx.lineWidth = 3
       ctx.setLineDash([5, 5])
-      ctx.strokeRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+      ctx.strokeRect(pendingClipData.region.x, pendingClipData.region.y, pendingClipData.region.width, pendingClipData.region.height)
       ctx.setLineDash([])
+
+      // Show current clip indicator
+      ctx.fillStyle = '#F59E0B'
+      ctx.font = 'bold 16px sans-serif'
+      ctx.setLineDash([])
+      ctx.fillText(`範囲${currentClipIndex + 1}/${clips.length}`, 10, 30)
 
       // Show selected transparency color if any
       if (transparencyColor) {
         const { r, g, b } = transparencyColor
         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`
-        ctx.fillRect(10, 10, 50, 50)
+        ctx.fillRect(10, 50, 50, 50)
         ctx.strokeStyle = '#000000'
         ctx.lineWidth = 2
-        ctx.strokeRect(10, 10, 50, 50)
+        ctx.strokeRect(10, 50, 50, 50)
 
         ctx.fillStyle = '#000000'
         ctx.font = '12px sans-serif'
-        ctx.fillText('透過色', 70, 35)
+        ctx.fillText('透過色', 70, 75)
       }
     }
 
     originalImg.onload = checkAllLoaded
     clipImg.onload = checkAllLoaded
     originalImg.src = originalImage
-    clipImg.src = clipImageData
+    clipImg.src = pendingClipData.imageData
   }
 
   const drawNormalMode = (ctx) => {
@@ -337,22 +345,22 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const applyTransparency = () => {
-    if (!transparencyColor || !clipImageData) return
+    if (!transparencyColor || !pendingClipData) return
 
     try {
       const img = new Image()
       img.onload = () => {
         // Create canvas for transparency processing
         const tempCanvas = document.createElement('canvas')
-        tempCanvas.width = clipRegion.width
-        tempCanvas.height = clipRegion.height
+        tempCanvas.width = pendingClipData.region.width
+        tempCanvas.height = pendingClipData.region.height
         const tempCtx = tempCanvas.getContext('2d')
 
         // Draw clip image
         tempCtx.drawImage(img, 0, 0)
 
         // Get image data
-        const imageData = tempCtx.getImageData(0, 0, clipRegion.width, clipRegion.height)
+        const imageData = tempCtx.getImageData(0, 0, pendingClipData.region.width, pendingClipData.region.height)
         const data = imageData.data
 
         // Calculate color distance and apply transparency
@@ -380,14 +388,16 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         // Put processed image data back
         tempCtx.putImageData(imageData, 0, 0)
 
-        // Update clipImageData with transparency applied
-        setClipImageData(tempCanvas.toDataURL('image/png'))
+        // Update current clip with transparency applied
+        const updatedClips = [...clips]
+        updatedClips[currentClipIndex].imageData = tempCanvas.toDataURL('image/png')
+        setClips(updatedClips)
 
-        // Enter editing mode
-        enterEditMode()
+        // Move to next clip or enter edit mode
+        proceedToNextClipOrEdit()
       }
 
-      img.src = clipImageData
+      img.src = pendingClipData.imageData
     } catch (error) {
       console.error('Transparency error:', error)
       onError('透過処理に失敗しました')
@@ -395,29 +405,49 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const skipTransparency = () => {
-    // Skip transparency and go directly to edit mode
-    enterEditMode()
+    // Skip transparency and go to next clip or edit mode
+    proceedToNextClipOrEdit()
+  }
+
+  const proceedToNextClipOrEdit = () => {
+    const nextIndex = currentClipIndex + 1
+
+    if (nextIndex < clips.length) {
+      // Move to next clip's transparency selection
+      setCurrentClipIndex(nextIndex)
+      setPendingClipData({
+        region: clips[nextIndex].region,
+        imageData: clips[nextIndex].imageData
+      })
+      setTransparencyColor(null)
+      setTransparencyThreshold(30)
+      // Stay in transparency selection mode
+    } else {
+      // All clips processed, enter editing mode
+      enterEditMode()
+    }
   }
 
   const enterEditMode = () => {
     setIsSelectingTransparency(false)
-    setIsEditingClip(true)
-    setClipRotation(0)
-    setClipScaleX(100)
-    setClipScaleY(100)
-    setClipOffsetX(0)
-    setClipOffsetY(0)
-    setAspectRatioLocked(true)
+    setPendingClipData(null)
+    setIsEditingClips(true)
+    setCurrentClipIndex(0)
   }
 
   const clearClipTransforms = () => {
-    // Reset all transform values to initial state
-    setClipRotation(0)
-    setClipScaleX(100)
-    setClipScaleY(100)
-    setClipOffsetX(0)
-    setClipOffsetY(0)
-    setAspectRatioLocked(true)
+    // Reset current clip's transform values to initial state
+    const updatedClips = [...clips]
+    updatedClips[currentClipIndex] = {
+      ...updatedClips[currentClipIndex],
+      rotation: 0,
+      scaleX: 100,
+      scaleY: 100,
+      offsetX: 0,
+      offsetY: 0,
+      aspectRatioLocked: true
+    }
+    setClips(updatedClips)
   }
 
   const handleMouseMove = (e) => {
@@ -520,6 +550,85 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     } catch (error) {
       console.error('Clip error:', error)
       onError('クリッピング処理に失敗しました')
+    }
+  }
+
+  const startMultiClipEdit = () => {
+    if (clipRects.length === 0 || !canvasRef.current) {
+      onError('クリップ範囲を選択してください')
+      return
+    }
+
+    try {
+      // Store original image
+      setOriginalImage(baseImage)
+
+      // Extract all clip regions from a CLEAN render (without dashed lines)
+      const cleanCanvas = document.createElement('canvas')
+      cleanCanvas.width = CANVAS_SIZE
+      cleanCanvas.height = CANVAS_SIZE
+      const cleanCtx = cleanCanvas.getContext('2d')
+
+      const img = new Image()
+      const render = () => {
+        // Render base image with current transformations, but NO dashed lines
+        cleanCtx.fillStyle = '#FFFFFF'
+        cleanCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+        cleanCtx.save()
+        cleanCtx.translate(CANVAS_SIZE / 2, CANVAS_SIZE / 2)
+        cleanCtx.rotate((rotation * Math.PI) / 180)
+
+        const scaleFactor = scale / 100
+        cleanCtx.scale(scaleFactor, scaleFactor)
+
+        cleanCtx.drawImage(img, -CANVAS_SIZE / 2, -CANVAS_SIZE / 2, CANVAS_SIZE, CANVAS_SIZE)
+        cleanCtx.restore()
+
+        // Extract all clip regions
+        const extractedClips = clipRects.map((rect, index) => {
+          const imageData = cleanCtx.getImageData(rect.x, rect.y, rect.width, rect.height)
+
+          const tempCanvas = document.createElement('canvas')
+          tempCanvas.width = rect.width
+          tempCanvas.height = rect.height
+          const tempCtx = tempCanvas.getContext('2d')
+          tempCtx.putImageData(imageData, 0, 0)
+
+          return {
+            id: index,
+            region: rect,
+            imageData: tempCanvas.toDataURL('image/png'),
+            rotation: 0,
+            scaleX: 100,
+            scaleY: 100,
+            offsetX: 0,
+            offsetY: 0,
+            aspectRatioLocked: true
+          }
+        })
+
+        setClips(extractedClips)
+        setCurrentClipIndex(0)
+
+        // Start with first clip's transparency selection
+        setPendingClipData({
+          region: extractedClips[0].region,
+          imageData: extractedClips[0].imageData
+        })
+        setIsSelectingTransparency(true)
+        setTransparencyColor(null)
+        setTransparencyThreshold(30)
+        setIsClipMode(false)
+        setClipRects([])
+      }
+
+      img.onload = render
+      img.src = baseImage
+      if (img.complete) render()
+    } catch (error) {
+      console.error('Multi-clip error:', error)
+      onError('クリップ処理に失敗しました')
     }
   }
 
@@ -878,10 +987,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                   )}
 
                   <button
-                    onClick={() => {
-                      // TODO: Implement multi-clip editing workflow
-                      onError('複数クリップの編集機能は実装中です')
-                    }}
+                    onClick={startMultiClipEdit}
                     className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition font-medium"
                   >
                     {clipRects.length}箇所の範囲を編集
