@@ -3,9 +3,17 @@ import { useRef, useState } from 'react'
 const ImageUpload = ({ onImageUpload, onError }) => {
   const fileInputRef = useRef(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [backgroundColor, setBackgroundColor] = useState('#FFFFFF')
 
   const CANVAS_SIZE = 512
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
+
+  const backgroundColors = [
+    { value: '#FFFFFF', label: '白', colorClass: 'bg-white' },
+    { value: '#000000', label: '黒', colorClass: 'bg-black' },
+    { value: '#808080', label: 'グレー', colorClass: 'bg-gray-500' },
+    { value: '#F0F0F0', label: '明るいグレー', colorClass: 'bg-gray-200' },
+  ]
 
   const processImage = (file) => {
     // Validate file type
@@ -34,8 +42,8 @@ const ImageUpload = ({ onImageUpload, onError }) => {
           canvas.height = CANVAS_SIZE
           const ctx = canvas.getContext('2d')
 
-          // Fill with white background
-          ctx.fillStyle = '#FFFFFF'
+          // Fill with selected background color
+          ctx.fillStyle = backgroundColor
           ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
           // Calculate dimensions for center cropping
@@ -104,6 +112,32 @@ const ImageUpload = ({ onImageUpload, onError }) => {
 
   return (
     <div className="space-y-4">
+      {/* Background Color Selection */}
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-gray-700">
+          背景色を選択
+        </label>
+        <div className="flex gap-2">
+          {backgroundColors.map((color) => (
+            <button
+              key={color.value}
+              onClick={() => setBackgroundColor(color.value)}
+              className={`flex items-center gap-2 px-3 py-2 rounded border-2 transition ${
+                backgroundColor === color.value
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-gray-300 hover:border-gray-400'
+              }`}
+            >
+              <div className={`w-6 h-6 rounded border border-gray-400 ${color.colorClass}`}></div>
+              <span className="text-sm">{color.label}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-500">
+          ※ 画像の外側の背景色を設定します
+        </p>
+      </div>
+
       <div
         className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
           isDragging
