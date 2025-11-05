@@ -379,6 +379,16 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setAspectRatioLocked(true)
   }
 
+  const clearClipTransforms = () => {
+    // Reset all transform values to initial state
+    setClipRotation(0)
+    setClipScaleX(100)
+    setClipScaleY(100)
+    setClipOffsetX(0)
+    setClipOffsetY(0)
+    setAspectRatioLocked(true)
+  }
+
   const handleMouseMove = (e) => {
     if (!isDragging || !dragStart) return
 
@@ -933,6 +943,14 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                   className="w-full"
                 />
               </div>
+
+              {/* Clear Button */}
+              <button
+                onClick={clearClipTransforms}
+                className="w-full px-4 py-2 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded hover:bg-yellow-200 transition font-medium"
+              >
+                クリア（数値をリセット）
+              </button>
 
               {/* Action Buttons */}
               <div className="flex gap-2">
