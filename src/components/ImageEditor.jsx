@@ -377,8 +377,64 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (!canvasRef.current) return
 
     try {
-      const dataUrl = canvasRef.current.toDataURL('image/png')
-      onSave(dataUrl)
+      // If in edit mode, save without green dashed lines
+      if (isEditingClip && originalImage && clipImageData && clipRegion) {
+        // Create temporary canvas for clean save
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = CANVAS_SIZE
+        tempCanvas.height = CANVAS_SIZE
+        const tempCtx = tempCanvas.getContext('2d')
+
+        const originalImg = new Image()
+        const clipImg = new Image()
+
+        let imagesLoaded = 0
+        const checkAllLoaded = () => {
+          imagesLoaded++
+          if (imagesLoaded === 2) {
+            renderClean()
+          }
+        }
+
+        const renderClean = () => {
+          // Fill with white background
+          tempCtx.fillStyle = '#FFFFFF'
+          tempCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+          // Draw original image as background
+          tempCtx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+          // Draw transformed clip region (without dashed box)
+          tempCtx.save()
+
+          const centerX = clipRegion.x + clipRegion.width / 2 + clipOffsetX
+          const centerY = clipRegion.y + clipRegion.height / 2 + clipOffsetY
+
+          tempCtx.translate(centerX, centerY)
+          tempCtx.rotate((clipRotation * Math.PI) / 180)
+
+          const scaleFactorX = clipScaleX / 100
+          const scaleFactorY = clipScaleY / 100
+          tempCtx.scale(scaleFactorX, scaleFactorY)
+
+          tempCtx.drawImage(clipImg, -clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
+
+          tempCtx.restore()
+
+          // Save without dashed lines
+          const dataUrl = tempCanvas.toDataURL('image/png')
+          onSave(dataUrl)
+        }
+
+        originalImg.onload = checkAllLoaded
+        clipImg.onload = checkAllLoaded
+        originalImg.src = originalImage
+        clipImg.src = clipImageData
+      } else {
+        // Normal save from canvas
+        const dataUrl = canvasRef.current.toDataURL('image/png')
+        onSave(dataUrl)
+      }
     } catch (error) {
       onError('画像の保存に失敗しました')
     }
