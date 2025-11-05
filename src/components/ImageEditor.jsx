@@ -746,6 +746,99 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setClipImageData(null)
   }
 
+  const finishMultiClipEdit = () => {
+    if (!canvasRef.current || !originalImage || clips.length === 0) return
+
+    // Immediately reset UI states to prevent dashed lines from showing
+    setIsClipMode(false)
+    setIsEditingClips(false)
+
+    try {
+      // Create final composite image
+      const finalCanvas = document.createElement('canvas')
+      finalCanvas.width = CANVAS_SIZE
+      finalCanvas.height = CANVAS_SIZE
+      const finalCtx = finalCanvas.getContext('2d')
+
+      const originalImg = new Image()
+      const clipImages = clips.map(() => new Image())
+
+      let imagesLoaded = 0
+      const totalImages = 1 + clips.length
+
+      const checkAllLoaded = () => {
+        imagesLoaded++
+        if (imagesLoaded === totalImages) {
+          renderFinalComposite()
+        }
+      }
+
+      const renderFinalComposite = () => {
+        // Draw original image as background
+        finalCtx.fillStyle = '#FFFFFF'
+        finalCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+        finalCtx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+        // Fill all original clip regions with white to prevent overlap
+        clips.forEach(clip => {
+          finalCtx.fillStyle = '#FFFFFF'
+          finalCtx.fillRect(clip.region.x, clip.region.y, clip.region.width, clip.region.height)
+        })
+
+        // Draw all transformed clips
+        clips.forEach((clip, index) => {
+          const clipImg = clipImages[index]
+
+          finalCtx.save()
+
+          const centerX = clip.region.x + clip.region.width / 2 + clip.offsetX
+          const centerY = clip.region.y + clip.region.height / 2 + clip.offsetY
+
+          finalCtx.translate(centerX, centerY)
+          finalCtx.rotate((clip.rotation * Math.PI) / 180)
+
+          const scaleFactorX = clip.scaleX / 100
+          const scaleFactorY = clip.scaleY / 100
+          finalCtx.scale(scaleFactorX, scaleFactorY)
+
+          finalCtx.drawImage(clipImg, -clip.region.width / 2, -clip.region.height / 2, clip.region.width, clip.region.height)
+
+          finalCtx.restore()
+        })
+
+        // Update base image with composite
+        const newImageData = finalCanvas.toDataURL('image/png')
+        setBaseImage(newImageData)
+
+        // Clean up clip data
+        setOriginalImage(null)
+        setClips([])
+        setCurrentClipIndex(0)
+      }
+
+      originalImg.onload = checkAllLoaded
+      originalImg.src = originalImage
+
+      clipImages.forEach((img, index) => {
+        img.onload = checkAllLoaded
+        img.src = clips[index].imageData
+      })
+    } catch (error) {
+      console.error('Finish multi-clip edit error:', error)
+      onError('編集の完了に失敗しました')
+    }
+  }
+
+  const cancelMultiClipEdit = () => {
+    setIsClipMode(false)
+    setIsEditingClips(false)
+    setClipRects([])
+    setCurrentDragRect(null)
+    setOriginalImage(null)
+    setClips([])
+    setCurrentClipIndex(0)
+  }
+
   const handleSave = () => {
     if (!canvasRef.current) return
 
@@ -756,15 +849,17 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       tempCanvas.height = CANVAS_SIZE
       const tempCtx = tempCanvas.getContext('2d')
 
-      // If in edit mode, save composite without green dashed lines
-      if (isEditingClip && originalImage && clipImageData && clipRegion) {
+      // If in multi-clip edit mode, save composite without dashed lines
+      if (isEditingClips && originalImage && clips.length > 0) {
         const originalImg = new Image()
-        const clipImg = new Image()
+        const clipImages = clips.map(() => new Image())
 
         let imagesLoaded = 0
+        const totalImages = 1 + clips.length
+
         const checkAllLoaded = () => {
           imagesLoaded++
-          if (imagesLoaded === 2) {
+          if (imagesLoaded === totalImages) {
             renderCleanComposite()
           }
         }
@@ -777,26 +872,32 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           // Draw original image as background
           tempCtx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-          // Fill original clip region with white to prevent overlap
-          tempCtx.fillStyle = '#FFFFFF'
-          tempCtx.fillRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+          // Fill all original clip regions with white to prevent overlap
+          clips.forEach(clip => {
+            tempCtx.fillStyle = '#FFFFFF'
+            tempCtx.fillRect(clip.region.x, clip.region.y, clip.region.width, clip.region.height)
+          })
 
-          // Draw transformed clip region (without dashed box)
-          tempCtx.save()
+          // Draw all transformed clips (without dashed boxes)
+          clips.forEach((clip, index) => {
+            const clipImg = clipImages[index]
 
-          const centerX = clipRegion.x + clipRegion.width / 2 + clipOffsetX
-          const centerY = clipRegion.y + clipRegion.height / 2 + clipOffsetY
+            tempCtx.save()
 
-          tempCtx.translate(centerX, centerY)
-          tempCtx.rotate((clipRotation * Math.PI) / 180)
+            const centerX = clip.region.x + clip.region.width / 2 + clip.offsetX
+            const centerY = clip.region.y + clip.region.height / 2 + clip.offsetY
 
-          const scaleFactorX = clipScaleX / 100
-          const scaleFactorY = clipScaleY / 100
-          tempCtx.scale(scaleFactorX, scaleFactorY)
+            tempCtx.translate(centerX, centerY)
+            tempCtx.rotate((clip.rotation * Math.PI) / 180)
 
-          tempCtx.drawImage(clipImg, -clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
+            const scaleFactorX = clip.scaleX / 100
+            const scaleFactorY = clip.scaleY / 100
+            tempCtx.scale(scaleFactorX, scaleFactorY)
 
-          tempCtx.restore()
+            tempCtx.drawImage(clipImg, -clip.region.width / 2, -clip.region.height / 2, clip.region.width, clip.region.height)
+
+            tempCtx.restore()
+          })
 
           // Save without dashed lines
           const dataUrl = tempCanvas.toDataURL('image/png')
@@ -804,9 +905,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         }
 
         originalImg.onload = checkAllLoaded
-        clipImg.onload = checkAllLoaded
         originalImg.src = originalImage
-        clipImg.src = clipImageData
+
+        clipImages.forEach((img, index) => {
+          img.onload = checkAllLoaded
+          img.src = clips[index].imageData
+        })
       } else {
         // Normal mode or clipping mode (selection): render baseImage without dashed lines
         const img = new Image()
@@ -1058,21 +1162,65 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           </>
         ) : (
           <>
-            {/* Clip Edit Mode Controls */}
+            {/* Multi-Clip Edit Mode Controls */}
             <div className="bg-green-50 border border-green-200 rounded p-4 space-y-4">
-              <h3 className="font-semibold text-green-800">選択範囲の編集中</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-green-800">選択範囲の編集中</h3>
+                <div className="text-sm font-medium text-green-700">
+                  範囲 {currentClipIndex + 1} / {clips.length}
+                </div>
+              </div>
+
+              {/* Clip Switching UI */}
+              {clips.length > 1 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentClipIndex(Math.max(0, currentClipIndex - 1))}
+                    disabled={currentClipIndex === 0}
+                    className={`px-4 py-2 bg-blue-500 text-white rounded transition ${
+                      currentClipIndex === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
+                    }`}
+                  >
+                    ← 前の範囲
+                  </button>
+                  <div className="flex-1 flex gap-1 justify-center">
+                    {clips.map((_, index) => (
+                      <button
+                        key={index}
+                        onClick={() => setCurrentClipIndex(index)}
+                        className={`w-8 h-8 rounded-full font-medium transition ${
+                          index === currentClipIndex
+                            ? 'bg-green-600 text-white'
+                            : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+                        }`}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => setCurrentClipIndex(Math.min(clips.length - 1, currentClipIndex + 1))}
+                    disabled={currentClipIndex === clips.length - 1}
+                    className={`px-4 py-2 bg-blue-500 text-white rounded transition ${
+                      currentClipIndex === clips.length - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'
+                    }`}
+                  >
+                    次の範囲 →
+                  </button>
+                </div>
+              )}
 
               {/* Rotation Slider */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  回転: {clipRotation}°
+                  回転: {clips[currentClipIndex]?.rotation || 0}°
                 </label>
                 <input
                   type="range"
                   min="-180"
                   max="180"
-                  value={clipRotation}
-                  onChange={(e) => setClipRotation(Number(e.target.value))}
+                  value={clips[currentClipIndex]?.rotation || 0}
+                  onChange={(e) => updateCurrentClip({ rotation: Number(e.target.value) })}
                   className="w-full"
                 />
               </div>
@@ -1080,30 +1228,30 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               {/* Aspect Ratio Lock Toggle */}
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => setAspectRatioLocked(!aspectRatioLocked)}
+                  onClick={() => updateCurrentClip({ aspectRatioLocked: !clips[currentClipIndex]?.aspectRatioLocked })}
                   className={`px-4 py-2 rounded transition text-sm ${
-                    aspectRatioLocked
+                    clips[currentClipIndex]?.aspectRatioLocked
                       ? 'bg-blue-500 text-white hover:bg-blue-600'
                       : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
                   }`}
                 >
-                  {aspectRatioLocked ? '🔒 アスペクト比固定' : '🔓 アスペクト比解除'}
+                  {clips[currentClipIndex]?.aspectRatioLocked ? '🔒 アスペクト比固定' : '🔓 アスペクト比解除'}
                 </button>
                 <span className="text-xs text-gray-600">
-                  {aspectRatioLocked ? '縦横連動' : '縦横個別調整'}
+                  {clips[currentClipIndex]?.aspectRatioLocked ? '縦横連動' : '縦横個別調整'}
                 </span>
               </div>
 
               {/* Scale X Slider */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  横拡大縮小: {clipScaleX}%
+                  横拡大縮小: {clips[currentClipIndex]?.scaleX || 100}%
                 </label>
                 <input
                   type="range"
                   min="10"
                   max="300"
-                  value={clipScaleX}
+                  value={clips[currentClipIndex]?.scaleX || 100}
                   onChange={handleClipScaleXChange}
                   className="w-full"
                 />
@@ -1112,13 +1260,13 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               {/* Scale Y Slider */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  縦拡大縮小: {clipScaleY}%
+                  縦拡大縮小: {clips[currentClipIndex]?.scaleY || 100}%
                 </label>
                 <input
                   type="range"
                   min="10"
                   max="300"
-                  value={clipScaleY}
+                  value={clips[currentClipIndex]?.scaleY || 100}
                   onChange={handleClipScaleYChange}
                   className="w-full"
                 />
@@ -1127,14 +1275,14 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               {/* Move X */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  横移動: {clipOffsetX}px
+                  横移動: {clips[currentClipIndex]?.offsetX || 0}px
                 </label>
                 <input
                   type="range"
                   min="-256"
                   max="256"
-                  value={clipOffsetX}
-                  onChange={(e) => setClipOffsetX(Number(e.target.value))}
+                  value={clips[currentClipIndex]?.offsetX || 0}
+                  onChange={(e) => updateCurrentClip({ offsetX: Number(e.target.value) })}
                   className="w-full"
                 />
               </div>
@@ -1142,14 +1290,14 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               {/* Move Y */}
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
-                  縦移動: {clipOffsetY}px
+                  縦移動: {clips[currentClipIndex]?.offsetY || 0}px
                 </label>
                 <input
                   type="range"
                   min="-256"
                   max="256"
-                  value={clipOffsetY}
-                  onChange={(e) => setClipOffsetY(Number(e.target.value))}
+                  value={clips[currentClipIndex]?.offsetY || 0}
+                  onChange={(e) => updateCurrentClip({ offsetY: Number(e.target.value) })}
                   className="w-full"
                 />
               </div>
@@ -1159,13 +1307,13 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                 onClick={clearClipTransforms}
                 className="w-full px-4 py-2 bg-yellow-100 text-yellow-800 border border-yellow-300 rounded hover:bg-yellow-200 transition font-medium"
               >
-                クリア（数値をリセット）
+                この範囲をクリア（数値をリセット）
               </button>
 
               {/* Action Buttons */}
               <div className="flex gap-2">
                 <button
-                  onClick={finishClipEdit}
+                  onClick={finishMultiClipEdit}
                   className="flex-1 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 transition font-medium"
                 >
                   編集を完了
@@ -1177,7 +1325,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                   保存
                 </button>
                 <button
-                  onClick={cancelClipEdit}
+                  onClick={cancelMultiClipEdit}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 transition"
                 >
                   キャンセル
@@ -1185,7 +1333,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               </div>
 
               <p className="text-xs text-gray-600">
-                ※ 「編集を完了」で元画像に合成 / 「保存」で編集中の状態を保存
+                ※ 「編集を完了」で全範囲を元画像に合成 / 「保存」で編集中の状態を保存
               </p>
             </div>
           </>
