@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 const ImageEditor = ({ imageData, onSave, onError }) => {
   const canvasRef = useRef(null)
+  const [baseImage, setBaseImage] = useState(null)
   const [rotation, setRotation] = useState(0)
   const [scale, setScale] = useState(100)
   const [isClipMode, setIsClipMode] = useState(false)
@@ -12,15 +13,26 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const CANVAS_SIZE = 512
   const MIN_CLIP_SIZE = 64
 
+  // Initialize or reset baseImage when imageData changes
   useEffect(() => {
-    if (imageData && canvasRef.current) {
+    if (imageData) {
+      setBaseImage(imageData)
+      setRotation(0)
+      setScale(100)
+      setIsClipMode(false)
+      setClipRect(null)
+    }
+  }, [imageData])
+
+  useEffect(() => {
+    if (baseImage && canvasRef.current) {
       drawCanvas()
     }
-  }, [imageData, rotation, scale])
+  }, [baseImage, rotation, scale, clipRect, isClipMode])
 
   const drawCanvas = () => {
     const canvas = canvasRef.current
-    if (!canvas || !imageData) return
+    if (!canvas || !baseImage) return
 
     const ctx = canvas.getContext('2d')
     const img = new Image()
@@ -50,7 +62,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       ctx.restore()
 
       // Draw clip rectangle if in clip mode
-      if (isClipMode && clipRect) {
+      if (isClipMode && clipRect && clipRect.size > MIN_CLIP_SIZE) {
         ctx.strokeStyle = '#3B82F6'
         ctx.lineWidth = 2
         ctx.setLineDash([5, 5])
@@ -59,7 +71,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       }
     }
 
-    img.src = imageData
+    img.src = baseImage
   }
 
   const handleRotateLeft = () => {
@@ -107,9 +119,6 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     const deltaY = y - dragStart.y
     const size = Math.min(Math.abs(deltaX), Math.abs(deltaY))
 
-    // Ensure minimum size
-    if (size < MIN_CLIP_SIZE) return
-
     // Calculate position (ensure square and within bounds)
     const clipX = deltaX < 0 ? dragStart.x - size : dragStart.x
     const clipY = deltaY < 0 ? dragStart.y - size : dragStart.y
@@ -128,41 +137,50 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setDragStart(null)
   }
 
-  const applyClip = () => {
-    if (!clipRect || !canvasRef.current) return
+  const confirmClipRegion = () => {
+    if (!clipRect || clipRect.size < MIN_CLIP_SIZE || !canvasRef.current) {
+      onError('有効なクリッピング範囲を選択してください')
+      return
+    }
 
-    const canvas = canvasRef.current
-    const ctx = canvas.getContext('2d')
+    try {
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext('2d')
 
-    // Get clipped area
-    const imageData = ctx.getImageData(clipRect.x, clipRect.y, clipRect.size, clipRect.size)
+      // Get the current canvas content (with transformations applied)
+      const imageData = ctx.getImageData(clipRect.x, clipRect.y, clipRect.size, clipRect.size)
 
-    // Create new canvas for resizing
-    const tempCanvas = document.createElement('canvas')
-    tempCanvas.width = clipRect.size
-    tempCanvas.height = clipRect.size
-    const tempCtx = tempCanvas.getContext('2d')
-    tempCtx.putImageData(imageData, 0, 0)
+      // Create temporary canvas for the clipped region
+      const tempCanvas = document.createElement('canvas')
+      tempCanvas.width = clipRect.size
+      tempCanvas.height = clipRect.size
+      const tempCtx = tempCanvas.getContext('2d')
+      tempCtx.putImageData(imageData, 0, 0)
 
-    // Resize to 512x512
-    const finalCanvas = document.createElement('canvas')
-    finalCanvas.width = CANVAS_SIZE
-    finalCanvas.height = CANVAS_SIZE
-    const finalCtx = finalCanvas.getContext('2d')
-    finalCtx.drawImage(tempCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+      // Resize to 512x512
+      const finalCanvas = document.createElement('canvas')
+      finalCanvas.width = CANVAS_SIZE
+      finalCanvas.height = CANVAS_SIZE
+      const finalCtx = finalCanvas.getContext('2d')
 
-    // Update current image
-    const newImageData = finalCanvas.toDataURL('image/png')
+      // Fill with white background
+      finalCtx.fillStyle = '#FFFFFF'
+      finalCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-    // Reset states
-    setRotation(0)
-    setScale(100)
-    setIsClipMode(false)
-    setClipRect(null)
+      finalCtx.drawImage(tempCanvas, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-    // Trigger re-render with new image
-    if (onSave) {
-      onSave(newImageData)
+      // Update base image with clipped region
+      const newImageData = finalCanvas.toDataURL('image/png')
+      setBaseImage(newImageData)
+
+      // Reset transformations and clip mode
+      setRotation(0)
+      setScale(100)
+      setIsClipMode(false)
+      setClipRect(null)
+    } catch (error) {
+      console.error('Clip error:', error)
+      onError('クリッピング処理に失敗しました')
     }
   }
 
@@ -170,12 +188,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (!canvasRef.current) return
 
     try {
-      if (isClipMode && clipRect) {
-        applyClip()
-      } else {
-        const dataUrl = canvasRef.current.toDataURL('image/png')
-        onSave(dataUrl)
-      }
+      const dataUrl = canvasRef.current.toDataURL('image/png')
+      onSave(dataUrl)
     } catch (error) {
       onError('画像の保存に失敗しました')
     }
@@ -197,7 +211,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           ref={canvasRef}
           width={CANVAS_SIZE}
           height={CANVAS_SIZE}
-          className="border border-gray-300 rounded cursor-crosshair"
+          className={`border border-gray-300 rounded ${isClipMode ? 'cursor-crosshair' : 'cursor-default'}`}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
@@ -211,13 +225,15 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         <div className="flex items-center gap-2">
           <button
             onClick={handleRotateLeft}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+            disabled={isClipMode}
+            className={`px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             ← 回転
           </button>
           <button
             onClick={handleRotateRight}
-            className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+            disabled={isClipMode}
+            className={`px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             回転 →
           </button>
@@ -235,29 +251,53 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
             max="300"
             value={scale}
             onChange={handleScaleChange}
-            className="w-full"
+            disabled={isClipMode}
+            className={`w-full ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           />
         </div>
 
         {/* Clip Mode */}
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => {
-              setIsClipMode(!isClipMode)
-              setClipRect(null)
-            }}
-            className={`px-4 py-2 rounded transition ${
-              isClipMode
-                ? 'bg-green-500 text-white hover:bg-green-600'
-                : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-            }`}
-          >
-            {isClipMode ? 'クリッピングモード ON' : 'クリッピングモード OFF'}
-          </button>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setIsClipMode(!isClipMode)
+                setClipRect(null)
+                if (!isClipMode) {
+                  // Reset transformations when entering clip mode
+                  setRotation(0)
+                  setScale(100)
+                }
+              }}
+              className={`px-4 py-2 rounded transition ${
+                isClipMode
+                  ? 'bg-green-500 text-white hover:bg-green-600'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              {isClipMode ? 'クリッピングモード ON' : 'クリッピングモード OFF'}
+            </button>
+            {isClipMode && !clipRect && (
+              <span className="text-xs text-gray-600">
+                ドラッグして正方形を選択
+              </span>
+            )}
+          </div>
+
+          {/* Confirm Clip Button */}
+          {isClipMode && clipRect && clipRect.size >= MIN_CLIP_SIZE && (
+            <button
+              onClick={confirmClipRegion}
+              className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition font-medium"
+            >
+              範囲を確定して編集モードへ
+            </button>
+          )}
+
           {isClipMode && (
-            <span className="text-xs text-gray-600">
-              ドラッグして正方形を選択
-            </span>
+            <p className="text-xs text-gray-500">
+              ※ 範囲を選択して確定すると、選択範囲のみを切り出して編集できます
+            </p>
           )}
         </div>
 
@@ -265,7 +305,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         <div className="flex gap-2">
           <button
             onClick={handleSave}
-            className="flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition font-medium"
+            disabled={isClipMode}
+            className={`flex-1 px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 transition font-medium ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             保存
           </button>
@@ -276,6 +317,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
             リセット
           </button>
         </div>
+
+        {isClipMode && (
+          <p className="text-xs text-orange-600">
+            ⚠ クリッピングモード中は回転・拡大縮小・保存が無効です
+          </p>
+        )}
       </div>
     </div>
   )
