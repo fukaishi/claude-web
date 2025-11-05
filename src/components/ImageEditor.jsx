@@ -200,72 +200,91 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const drawClipEditMode = (ctx) => {
+    if (!originalImage || clips.length === 0) return
+
     const originalImg = new Image()
-    const clipImg = new Image()
+    const clipImages = clips.map(() => new Image())
 
     let imagesLoaded = 0
+    const totalImages = 1 + clips.length
+
     const checkAllLoaded = () => {
       imagesLoaded++
-      if (imagesLoaded === 2) {
-        renderClipEdit()
+      if (imagesLoaded === totalImages) {
+        renderAllClips()
       }
     }
 
-    const renderClipEdit = () => {
+    const renderAllClips = () => {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-      ctx.setLineDash([]) // Reset line dash to solid
+      ctx.setLineDash([])
 
       // Fill with white background
       ctx.fillStyle = '#FFFFFF'
       ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-      // Draw original image as background
+      // Draw original image
       ctx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-      // Fill original clip region with white to prevent overlap
-      ctx.fillStyle = '#FFFFFF'
-      ctx.fillRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+      // Fill all original clip regions with white to prevent overlap
+      clips.forEach(clip => {
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(clip.region.x, clip.region.y, clip.region.width, clip.region.height)
+      })
 
-      // Draw transformed clip region
-      ctx.save()
+      // Draw all transformed clips
+      clips.forEach((clip, index) => {
+        const clipImg = clipImages[index]
 
-      // Calculate center of clip region
-      const centerX = clipRegion.x + clipRegion.width / 2 + clipOffsetX
-      const centerY = clipRegion.y + clipRegion.height / 2 + clipOffsetY
+        ctx.save()
 
-      // Translate to clip center
-      ctx.translate(centerX, centerY)
+        const centerX = clip.region.x + clip.region.width / 2 + clip.offsetX
+        const centerY = clip.region.y + clip.region.height / 2 + clip.offsetY
 
-      // Rotate
-      ctx.rotate((clipRotation * Math.PI) / 180)
+        ctx.translate(centerX, centerY)
+        ctx.rotate((clip.rotation * Math.PI) / 180)
 
-      // Scale (separate X and Y)
-      const scaleFactorX = clipScaleX / 100
-      const scaleFactorY = clipScaleY / 100
-      ctx.scale(scaleFactorX, scaleFactorY)
+        const scaleFactorX = clip.scaleX / 100
+        const scaleFactorY = clip.scaleY / 100
+        ctx.scale(scaleFactorX, scaleFactorY)
 
-      // Draw clip image centered
-      ctx.drawImage(clipImg, -clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
+        ctx.drawImage(clipImg, -clip.region.width / 2, -clip.region.height / 2, clip.region.width, clip.region.height)
 
-      ctx.restore()
+        ctx.restore()
 
-      // Draw bounding box
-      ctx.save()
-      ctx.translate(centerX, centerY)
-      ctx.rotate((clipRotation * Math.PI) / 180)
-      ctx.scale(scaleFactorX, scaleFactorY)
-      ctx.strokeStyle = '#10B981'
-      ctx.lineWidth = 2
-      ctx.setLineDash([5, 5])
-      ctx.strokeRect(-clipRegion.width / 2, -clipRegion.height / 2, clipRegion.width, clipRegion.height)
-      ctx.setLineDash([])
-      ctx.restore()
+        // Draw bounding box for current clip
+        if (index === currentClipIndex) {
+          ctx.save()
+          ctx.translate(centerX, centerY)
+          ctx.rotate((clip.rotation * Math.PI) / 180)
+          ctx.scale(scaleFactorX, scaleFactorY)
+          ctx.strokeStyle = '#10B981'
+          ctx.lineWidth = 2
+          ctx.setLineDash([5, 5])
+          ctx.strokeRect(-clip.region.width / 2, -clip.region.height / 2, clip.region.width, clip.region.height)
+          ctx.setLineDash([])
+          ctx.restore()
+
+          // Draw clip number indicator
+          ctx.fillStyle = '#10B981'
+          ctx.font = 'bold 16px sans-serif'
+          ctx.fillText(`範囲${index + 1}`, clip.region.x + 5, clip.region.y - 5)
+        } else {
+          // Draw dim indicator for other clips
+          ctx.fillStyle = '#9CA3AF'
+          ctx.font = 'bold 14px sans-serif'
+          ctx.fillText(`${index + 1}`, clip.region.x + 5, clip.region.y - 5)
+        }
+      })
     }
 
     originalImg.onload = checkAllLoaded
-    clipImg.onload = checkAllLoaded
     originalImg.src = originalImage
-    clipImg.src = clipImageData
+
+    clipImages.forEach((img, index) => {
+      img.onload = checkAllLoaded
+      img.src = clips[index].imageData
+    })
   }
 
   const handleRotateLeft = () => {
@@ -282,18 +301,31 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
   const handleClipScaleXChange = (e) => {
     const newScaleX = Number(e.target.value)
-    setClipScaleX(newScaleX)
-    if (aspectRatioLocked) {
-      setClipScaleY(newScaleX)
+    const updatedClips = [...clips]
+    updatedClips[currentClipIndex].scaleX = newScaleX
+    if (updatedClips[currentClipIndex].aspectRatioLocked) {
+      updatedClips[currentClipIndex].scaleY = newScaleX
     }
+    setClips(updatedClips)
   }
 
   const handleClipScaleYChange = (e) => {
     const newScaleY = Number(e.target.value)
-    setClipScaleY(newScaleY)
-    if (aspectRatioLocked) {
-      setClipScaleX(newScaleY)
+    const updatedClips = [...clips]
+    updatedClips[currentClipIndex].scaleY = newScaleY
+    if (updatedClips[currentClipIndex].aspectRatioLocked) {
+      updatedClips[currentClipIndex].scaleX = newScaleY
     }
+    setClips(updatedClips)
+  }
+
+  const updateCurrentClip = (updates) => {
+    const updatedClips = [...clips]
+    updatedClips[currentClipIndex] = {
+      ...updatedClips[currentClipIndex],
+      ...updates
+    }
+    setClips(updatedClips)
   }
 
   const handleReset = () => {
