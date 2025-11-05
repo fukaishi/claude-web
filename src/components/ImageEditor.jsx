@@ -260,35 +260,58 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     }
 
     try {
-      const canvas = canvasRef.current
-      const ctx = canvas.getContext('2d')
-
       // Store original image
       setOriginalImage(baseImage)
 
-      // Extract clip region from current canvas
-      const imageData = ctx.getImageData(clipRect.x, clipRect.y, clipRect.width, clipRect.height)
+      // Extract clip region from a CLEAN render (without dashed lines)
+      // Create a temporary canvas to render the base image cleanly
+      const cleanCanvas = document.createElement('canvas')
+      cleanCanvas.width = CANVAS_SIZE
+      cleanCanvas.height = CANVAS_SIZE
+      const cleanCtx = cleanCanvas.getContext('2d')
 
-      // Create canvas for clip region
-      const tempCanvas = document.createElement('canvas')
-      tempCanvas.width = clipRect.width
-      tempCanvas.height = clipRect.height
-      const tempCtx = tempCanvas.getContext('2d')
-      tempCtx.putImageData(imageData, 0, 0)
+      const img = new Image()
+      img.onload = () => {
+        // Render base image with current transformations, but NO dashed lines
+        cleanCtx.fillStyle = '#FFFFFF'
+        cleanCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
-      // Store clip data
-      setClipRegion(clipRect)
-      setClipImageData(tempCanvas.toDataURL('image/png'))
+        cleanCtx.save()
+        cleanCtx.translate(CANVAS_SIZE / 2, CANVAS_SIZE / 2)
+        cleanCtx.rotate((rotation * Math.PI) / 180)
 
-      // Enter editing mode
-      setIsEditingClip(true)
-      setClipRotation(0)
-      setClipScaleX(100)
-      setClipScaleY(100)
-      setClipOffsetX(0)
-      setClipOffsetY(0)
-      setAspectRatioLocked(true)
-      setClipRect(null) // Clear selection rectangle
+        const scaleFactor = scale / 100
+        cleanCtx.scale(scaleFactor, scaleFactor)
+
+        cleanCtx.drawImage(img, -CANVAS_SIZE / 2, -CANVAS_SIZE / 2, CANVAS_SIZE, CANVAS_SIZE)
+        cleanCtx.restore()
+
+        // NOW extract the clip region from the clean canvas
+        const imageData = cleanCtx.getImageData(clipRect.x, clipRect.y, clipRect.width, clipRect.height)
+
+        // Create canvas for clip region
+        const tempCanvas = document.createElement('canvas')
+        tempCanvas.width = clipRect.width
+        tempCanvas.height = clipRect.height
+        const tempCtx = tempCanvas.getContext('2d')
+        tempCtx.putImageData(imageData, 0, 0)
+
+        // Store clip data
+        setClipRegion(clipRect)
+        setClipImageData(tempCanvas.toDataURL('image/png'))
+
+        // Enter editing mode
+        setIsEditingClip(true)
+        setClipRotation(0)
+        setClipScaleX(100)
+        setClipScaleY(100)
+        setClipOffsetX(0)
+        setClipOffsetY(0)
+        setAspectRatioLocked(true)
+        setClipRect(null) // Clear selection rectangle
+      }
+
+      img.src = baseImage
     } catch (error) {
       console.error('Clip error:', error)
       onError('クリッピング処理に失敗しました')
