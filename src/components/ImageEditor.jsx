@@ -27,6 +27,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const [transparencyThreshold, setTransparencyThreshold] = useState(30)
   const [pendingClipData, setPendingClipData] = useState(null) // Temporary storage during transparency selection
 
+  // Fill (Paint Bucket) mode states
+  const [isFillMode, setIsFillMode] = useState(false)
+  const [fillColor, setFillColor] = useState({ r: 255, g: 255, b: 255, a: 255 }) // White by default
+  const [fillTolerance, setFillTolerance] = useState(30)
+  const [undoStack, setUndoStack] = useState([])
+
   const CANVAS_SIZE = 512
   const MIN_CLIP_SIZE = 32
   const MAX_CLIPS = 3
@@ -42,6 +48,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       setIsEditingClips(false)
       setClips([])
       setCurrentClipIndex(0)
+      setIsFillMode(false)
+      setUndoStack([])
     }
   }, [imageData])
 
@@ -49,7 +57,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (baseImage && canvasRef.current) {
       drawCanvas()
     }
-  }, [baseImage, rotation, scale, clipRects, currentDragRect, isClipMode, isEditingClips, clips, currentClipIndex, isSelectingTransparency, transparencyColor])
+  }, [baseImage, rotation, scale, clipRects, currentDragRect, isClipMode, isEditingClips, clips, currentClipIndex, isSelectingTransparency, transparencyColor, isFillMode])
 
   const drawCanvas = () => {
     const canvas = canvasRef.current
@@ -338,13 +346,109 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setOriginalImage(null)
     setClips([])
     setCurrentClipIndex(0)
+    setIsFillMode(false)
+    setUndoStack([])
+  }
+
+  // Flood Fill algorithm for paint bucket tool
+  const floodFill = (startX, startY) => {
+    if (!canvasRef.current) return
+
+    const canvas = canvasRef.current
+    const ctx = canvas.getContext('2d')
+    const imageData = ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+    const data = imageData.data
+
+    // Save current state for undo
+    setUndoStack([...undoStack, baseImage])
+
+    // Get color at clicked position
+    const startPos = (startY * CANVAS_SIZE + startX) * 4
+    const startR = data[startPos]
+    const startG = data[startPos + 1]
+    const startB = data[startPos + 2]
+    const startA = data[startPos + 3]
+
+    // Check if clicked color is already the fill color
+    if (
+      Math.abs(startR - fillColor.r) <= fillTolerance &&
+      Math.abs(startG - fillColor.g) <= fillTolerance &&
+      Math.abs(startB - fillColor.b) <= fillTolerance &&
+      Math.abs(startA - fillColor.a) <= fillTolerance
+    ) {
+      return // No need to fill
+    }
+
+    // BFS-based flood fill
+    const queue = [[startX, startY]]
+    const visited = new Set()
+
+    const colorMatch = (r, g, b, a) => {
+      return (
+        Math.abs(r - startR) <= fillTolerance &&
+        Math.abs(g - startG) <= fillTolerance &&
+        Math.abs(b - startB) <= fillTolerance &&
+        Math.abs(a - startA) <= fillTolerance
+      )
+    }
+
+    while (queue.length > 0) {
+      const [x, y] = queue.shift()
+      const key = `${x},${y}`
+
+      if (visited.has(key)) continue
+      if (x < 0 || x >= CANVAS_SIZE || y < 0 || y >= CANVAS_SIZE) continue
+
+      const pos = (y * CANVAS_SIZE + x) * 4
+      const r = data[pos]
+      const g = data[pos + 1]
+      const b = data[pos + 2]
+      const a = data[pos + 3]
+
+      if (!colorMatch(r, g, b, a)) continue
+
+      visited.add(key)
+
+      // Fill pixel
+      data[pos] = fillColor.r
+      data[pos + 1] = fillColor.g
+      data[pos + 2] = fillColor.b
+      data[pos + 3] = fillColor.a
+
+      // Add neighbors to queue
+      queue.push([x + 1, y])
+      queue.push([x - 1, y])
+      queue.push([x, y + 1])
+      queue.push([x, y - 1])
+    }
+
+    // Apply filled image data to canvas
+    ctx.putImageData(imageData, 0, 0)
+
+    // Update baseImage
+    const newImageData = canvas.toDataURL('image/png')
+    setBaseImage(newImageData)
+  }
+
+  const handleFillUndo = () => {
+    if (undoStack.length === 0) return
+
+    const previousImage = undoStack[undoStack.length - 1]
+    setBaseImage(previousImage)
+    setUndoStack(undoStack.slice(0, -1))
   }
 
   const handleMouseDown = (e) => {
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
+    const x = Math.floor(e.clientX - rect.left)
+    const y = Math.floor(e.clientY - rect.top)
+
+    // Fill mode - paint bucket tool
+    if (isFillMode && !isClipMode && !isEditingClips && !isSelectingTransparency) {
+      floodFill(x, y)
+      return
+    }
 
     // Transparency color selection mode
     if (isSelectingTransparency) {
@@ -961,6 +1065,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           width={CANVAS_SIZE}
           height={CANVAS_SIZE}
           className={`border border-gray-300 rounded ${
+            isFillMode && !isClipMode && !isEditingClips && !isSelectingTransparency ? 'cursor-pointer' :
             isSelectingTransparency ? 'cursor-pointer' :
             isClipMode && !isEditingClips ? 'cursor-crosshair' :
             'cursor-default'
@@ -1066,6 +1171,125 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               />
             </div>
 
+            {/* Fill (Paint Bucket) Mode */}
+            <div className="space-y-3 border-t border-gray-200 pt-4">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setIsFillMode(!isFillMode)
+                    if (!isFillMode) {
+                      setIsClipMode(false)
+                    }
+                  }}
+                  disabled={isClipMode}
+                  className={`px-4 py-2 rounded transition ${
+                    isFillMode && !isClipMode
+                      ? 'bg-amber-500 text-white hover:bg-amber-600'
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  } ${isClipMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  🪣 {isFillMode ? '塗りつぶしモード ON' : '塗りつぶしモード OFF'}
+                </button>
+                {isFillMode && !isClipMode && (
+                  <span className="text-xs text-gray-600">
+                    クリックして塗りつぶし
+                  </span>
+                )}
+              </div>
+
+              {isFillMode && !isClipMode && (
+                <div className="bg-amber-50 border border-amber-200 rounded p-3 space-y-3">
+                  {/* Color Presets */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      塗りつぶし色
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        onClick={() => setFillColor({ r: 255, g: 255, b: 255, a: 255 })}
+                        className="flex items-center gap-2 px-3 py-2 rounded border-2 transition hover:border-amber-500"
+                      >
+                        <div className="w-6 h-6 rounded border border-gray-400 bg-white"></div>
+                        <span className="text-sm">白</span>
+                      </button>
+                      <button
+                        onClick={() => setFillColor({ r: 0, g: 0, b: 0, a: 255 })}
+                        className="flex items-center gap-2 px-3 py-2 rounded border-2 transition hover:border-amber-500"
+                      >
+                        <div className="w-6 h-6 rounded border border-gray-400 bg-black"></div>
+                        <span className="text-sm">黒</span>
+                      </button>
+                      <button
+                        onClick={() => setFillColor({ r: 255, g: 255, b: 255, a: 0 })}
+                        className="flex items-center gap-2 px-3 py-2 rounded border-2 transition hover:border-amber-500"
+                      >
+                        <div className="w-6 h-6 rounded border border-gray-400 bg-white" style={{ backgroundImage: 'linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%)', backgroundSize: '8px 8px', backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0px' }}></div>
+                        <span className="text-sm">透明</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Custom Color Picker */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      カスタム色
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="color"
+                        value={`#${((fillColor.r << 16) | (fillColor.g << 8) | fillColor.b).toString(16).padStart(6, '0')}`}
+                        onChange={(e) => {
+                          const hex = e.target.value.slice(1)
+                          const r = parseInt(hex.slice(0, 2), 16)
+                          const g = parseInt(hex.slice(2, 4), 16)
+                          const b = parseInt(hex.slice(4, 6), 16)
+                          setFillColor({ r, g, b, a: 255 })
+                        }}
+                        className="w-20 h-10 rounded border border-gray-300 cursor-pointer"
+                      />
+                      <div className="flex items-center gap-2 px-3 py-2 bg-white rounded border border-gray-200">
+                        <div
+                          className="w-8 h-8 rounded border border-gray-300"
+                          style={{ backgroundColor: `rgba(${fillColor.r}, ${fillColor.g}, ${fillColor.b}, ${fillColor.a / 255})` }}
+                        ></div>
+                        <span className="text-xs text-gray-600 font-mono">
+                          RGB({fillColor.r}, {fillColor.g}, {fillColor.b})
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tolerance Slider */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      許容範囲: {fillTolerance}
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={fillTolerance}
+                      onChange={(e) => setFillTolerance(Number(e.target.value))}
+                      className="w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      値が大きいほど、似た色も塗りつぶされます
+                    </p>
+                  </div>
+
+                  {/* Undo Button */}
+                  {undoStack.length > 0 && (
+                    <button
+                      onClick={handleFillUndo}
+                      className="w-full px-4 py-2 bg-white text-amber-700 border border-amber-300 rounded hover:bg-amber-50 transition font-medium"
+                    >
+                      ← 元に戻す ({undoStack.length})
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* Clip Mode Toggle */}
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -1077,6 +1301,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                     if (!isClipMode) {
                       setRotation(0)
                       setScale(100)
+                      setIsFillMode(false)
                     }
                   }}
                   className={`px-4 py-2 rounded transition ${
