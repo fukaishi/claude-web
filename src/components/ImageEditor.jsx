@@ -377,14 +377,14 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (!canvasRef.current) return
 
     try {
-      // If in edit mode, save without green dashed lines
-      if (isEditingClip && originalImage && clipImageData && clipRegion) {
-        // Create temporary canvas for clean save
-        const tempCanvas = document.createElement('canvas')
-        tempCanvas.width = CANVAS_SIZE
-        tempCanvas.height = CANVAS_SIZE
-        const tempCtx = tempCanvas.getContext('2d')
+      // Always create a clean canvas without dashed lines
+      const tempCanvas = document.createElement('canvas')
+      tempCanvas.width = CANVAS_SIZE
+      tempCanvas.height = CANVAS_SIZE
+      const tempCtx = tempCanvas.getContext('2d')
 
+      // If in edit mode, save composite without green dashed lines
+      if (isEditingClip && originalImage && clipImageData && clipRegion) {
         const originalImg = new Image()
         const clipImg = new Image()
 
@@ -392,11 +392,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         const checkAllLoaded = () => {
           imagesLoaded++
           if (imagesLoaded === 2) {
-            renderClean()
+            renderCleanComposite()
           }
         }
 
-        const renderClean = () => {
+        const renderCleanComposite = () => {
           // Fill with white background
           tempCtx.fillStyle = '#FFFFFF'
           tempCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
@@ -431,9 +431,32 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         originalImg.src = originalImage
         clipImg.src = clipImageData
       } else {
-        // Normal save from canvas
-        const dataUrl = canvasRef.current.toDataURL('image/png')
-        onSave(dataUrl)
+        // Normal mode or clipping mode (selection): render baseImage without dashed lines
+        const img = new Image()
+
+        img.onload = () => {
+          // Fill with white background
+          tempCtx.fillStyle = '#FFFFFF'
+          tempCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+          // Apply transformations if any
+          tempCtx.save()
+          tempCtx.translate(CANVAS_SIZE / 2, CANVAS_SIZE / 2)
+          tempCtx.rotate((rotation * Math.PI) / 180)
+
+          const scaleFactor = scale / 100
+          tempCtx.scale(scaleFactor, scaleFactor)
+
+          tempCtx.drawImage(img, -CANVAS_SIZE / 2, -CANVAS_SIZE / 2, CANVAS_SIZE, CANVAS_SIZE)
+
+          tempCtx.restore()
+
+          // Save without any dashed lines
+          const dataUrl = tempCanvas.toDataURL('image/png')
+          onSave(dataUrl)
+        }
+
+        img.src = baseImage
       }
     } catch (error) {
       onError('画像の保存に失敗しました')
