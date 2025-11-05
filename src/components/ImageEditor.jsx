@@ -8,31 +8,28 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const [rotation, setRotation] = useState(0)
   const [scale, setScale] = useState(100)
 
-  // Clipping mode states
+  // Clipping mode states - support multiple clips (max 3)
   const [isClipMode, setIsClipMode] = useState(false)
-  const [clipRect, setClipRect] = useState(null)
+  const [clipRects, setClipRects] = useState([]) // Array of selection rectangles
   const [isDragging, setIsDragging] = useState(false)
   const [dragStart, setDragStart] = useState(null)
+  const [currentDragRect, setCurrentDragRect] = useState(null)
 
-  // Clip editing states
-  const [isEditingClip, setIsEditingClip] = useState(false)
+  // Multiple clip editing states
+  const [isEditingClips, setIsEditingClips] = useState(false)
   const [originalImage, setOriginalImage] = useState(null)
-  const [clipRegion, setClipRegion] = useState(null)
-  const [clipImageData, setClipImageData] = useState(null)
-  const [clipRotation, setClipRotation] = useState(0)
-  const [clipScaleX, setClipScaleX] = useState(100)
-  const [clipScaleY, setClipScaleY] = useState(100)
-  const [clipOffsetX, setClipOffsetX] = useState(0)
-  const [clipOffsetY, setClipOffsetY] = useState(0)
-  const [aspectRatioLocked, setAspectRatioLocked] = useState(true)
+  const [clips, setClips] = useState([]) // Array of clip objects
+  const [currentClipIndex, setCurrentClipIndex] = useState(0)
 
   // Transparency selection states
   const [isSelectingTransparency, setIsSelectingTransparency] = useState(false)
   const [transparencyColor, setTransparencyColor] = useState(null)
   const [transparencyThreshold, setTransparencyThreshold] = useState(30)
+  const [pendingClipData, setPendingClipData] = useState(null) // Temporary storage during transparency selection
 
   const CANVAS_SIZE = 512
   const MIN_CLIP_SIZE = 32
+  const MAX_CLIPS = 3
 
   // Initialize or reset baseImage when imageData changes
   useEffect(() => {
@@ -41,8 +38,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       setRotation(0)
       setScale(100)
       setIsClipMode(false)
-      setClipRect(null)
-      setIsEditingClip(false)
+      setClipRects([])
+      setIsEditingClips(false)
+      setClips([])
+      setCurrentClipIndex(0)
     }
   }, [imageData])
 
@@ -50,7 +49,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     if (baseImage && canvasRef.current) {
       drawCanvas()
     }
-  }, [baseImage, rotation, scale, clipRect, isClipMode, isEditingClip, clipRotation, clipScaleX, clipScaleY, clipOffsetX, clipOffsetY, isSelectingTransparency, transparencyColor])
+  }, [baseImage, rotation, scale, clipRects, currentDragRect, isClipMode, isEditingClips, clips, currentClipIndex, isSelectingTransparency, transparencyColor])
 
   const drawCanvas = () => {
     const canvas = canvasRef.current
@@ -58,11 +57,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
     const ctx = canvas.getContext('2d')
 
-    if (isSelectingTransparency && clipImageData && clipRegion) {
+    if (isSelectingTransparency && pendingClipData) {
       // Transparency color selection mode
       drawTransparencySelectionMode(ctx)
-    } else if (isEditingClip && originalImage && clipImageData) {
-      // Editing clip mode: show original + transformed clip region
+    } else if (isEditingClips && clips.length > 0) {
+      // Editing multiple clips mode
       drawClipEditMode(ctx)
     } else {
       // Normal mode or clip selection mode
@@ -153,12 +152,32 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       // Restore context
       ctx.restore()
 
-      // Draw clip rectangle if in clip mode
-      if (isClipMode && !isEditingClip && clipRect && clipRect.width > MIN_CLIP_SIZE && clipRect.height > MIN_CLIP_SIZE) {
-        ctx.strokeStyle = '#3B82F6'
-        ctx.lineWidth = 2
-        ctx.setLineDash([5, 5])
-        ctx.strokeRect(clipRect.x, clipRect.y, clipRect.width, clipRect.height)
+      // Draw all confirmed clip rectangles
+      if (isClipMode && !isEditingClips) {
+        // Draw confirmed rectangles (green)
+        clipRects.forEach((rect, index) => {
+          if (rect.width > MIN_CLIP_SIZE && rect.height > MIN_CLIP_SIZE) {
+            ctx.strokeStyle = '#10B981' // Green for confirmed
+            ctx.lineWidth = 2
+            ctx.setLineDash([5, 5])
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height)
+
+            // Draw clip number
+            ctx.fillStyle = '#10B981'
+            ctx.font = 'bold 16px sans-serif'
+            ctx.setLineDash([])
+            ctx.fillText(`${index + 1}`, rect.x + 5, rect.y + 20)
+            ctx.setLineDash([5, 5])
+          }
+        })
+
+        // Draw current dragging rectangle (blue)
+        if (currentDragRect && currentDragRect.width > MIN_CLIP_SIZE && currentDragRect.height > MIN_CLIP_SIZE) {
+          ctx.strokeStyle = '#3B82F6' // Blue for dragging
+          ctx.lineWidth = 2
+          ctx.strokeRect(currentDragRect.x, currentDragRect.y, currentDragRect.width, currentDragRect.height)
+        }
+
         ctx.setLineDash([])
       }
     }
@@ -267,11 +286,12 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     setRotation(0)
     setScale(100)
     setIsClipMode(false)
-    setClipRect(null)
-    setIsEditingClip(false)
+    setClipRects([])
+    setCurrentDragRect(null)
+    setIsEditingClips(false)
     setOriginalImage(null)
-    setClipRegion(null)
-    setClipImageData(null)
+    setClips([])
+    setCurrentClipIndex(0)
   }
 
   const handleMouseDown = (e) => {
@@ -286,12 +306,17 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       return
     }
 
-    // Clip selection mode
-    if (!isClipMode || isEditingClip) return
+    // Clip selection mode - allow multiple rectangles (max 3)
+    if (!isClipMode || isEditingClips) return
+
+    if (clipRects.length >= MAX_CLIPS) {
+      onError(`最大${MAX_CLIPS}箇所まで選択できます`)
+      return
+    }
 
     setIsDragging(true)
     setDragStart({ x, y })
-    setClipRect({ x, y, width: 0, height: 0 })
+    setCurrentDragRect({ x, y, width: 0, height: 0 })
   }
 
   const handleTransparencyColorClick = (x, y) => {
@@ -407,7 +432,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
     const clipX = deltaX < 0 ? x : dragStart.x
     const clipY = deltaY < 0 ? y : dragStart.y
 
-    setClipRect({
+    setCurrentDragRect({
       x: Math.max(0, Math.min(clipX, CANVAS_SIZE)),
       y: Math.max(0, Math.min(clipY, CANVAS_SIZE)),
       width: Math.min(width, CANVAS_SIZE - clipX),
@@ -418,8 +443,17 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   }
 
   const handleMouseUp = () => {
+    // Add rectangle to array if it's large enough
+    if (isDragging && currentDragRect &&
+        currentDragRect.width >= MIN_CLIP_SIZE &&
+        currentDragRect.height >= MIN_CLIP_SIZE &&
+        clipRects.length < MAX_CLIPS) {
+      setClipRects([...clipRects, currentDragRect])
+    }
+
     setIsDragging(false)
     setDragStart(null)
+    setCurrentDragRect(null)
   }
 
   const confirmClipRegion = () => {
@@ -787,7 +821,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                 <button
                   onClick={() => {
                     setIsClipMode(!isClipMode)
-                    setClipRect(null)
+                    setClipRects([])
+                    setCurrentDragRect(null)
                     if (!isClipMode) {
                       setRotation(0)
                       setScale(100)
@@ -801,25 +836,56 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
                 >
                   {isClipMode ? 'クリッピングモード ON' : 'クリッピングモード OFF'}
                 </button>
-                {isClipMode && !clipRect && (
+                {isClipMode && clipRects.length === 0 && (
                   <span className="text-xs text-gray-600">
-                    ドラッグして範囲を選択
+                    ドラッグして範囲を選択（最大{MAX_CLIPS}箇所）
                   </span>
                 )}
               </div>
 
-              {isClipMode && clipRect && clipRect.width >= MIN_CLIP_SIZE && clipRect.height >= MIN_CLIP_SIZE && (
-                <button
-                  onClick={confirmClipRegion}
-                  className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition font-medium"
-                >
-                  範囲を確定して編集モードへ
-                </button>
+              {/* Selected Clips List */}
+              {isClipMode && clipRects.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-sm font-medium text-gray-700">
+                    選択済み: {clipRects.length}/{MAX_CLIPS}箇所
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {clipRects.map((rect, index) => (
+                      <div key={index} className="flex items-center gap-2 px-3 py-1 bg-green-100 border border-green-300 rounded">
+                        <span className="text-sm font-medium text-green-800">範囲{index + 1}</span>
+                        <button
+                          onClick={() => {
+                            setClipRects(clipRects.filter((_, i) => i !== index))
+                          }}
+                          className="text-red-600 hover:text-red-800 text-sm"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {clipRects.length < MAX_CLIPS && (
+                    <p className="text-xs text-gray-600">
+                      ※ 続けてドラッグして追加選択できます
+                    </p>
+                  )}
+
+                  <button
+                    onClick={() => {
+                      // TODO: Implement multi-clip editing workflow
+                      onError('複数クリップの編集機能は実装中です')
+                    }}
+                    className="w-full px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 transition font-medium"
+                  >
+                    {clipRects.length}箇所の範囲を編集
+                  </button>
+                </div>
               )}
 
               {isClipMode && (
                 <p className="text-xs text-gray-500">
-                  ※ 選択範囲を編集して元の画像に合成できます
+                  ※ 複数範囲を選択して個別に編集できます
                 </p>
               )}
             </div>
