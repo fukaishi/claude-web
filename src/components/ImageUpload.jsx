@@ -20,21 +20,17 @@ const ImageUpload = ({ onImageUpload, onError }) => {
 
   // Re-render canvas when background color changes
   useEffect(() => {
-    if (previewImage) {
-      renderPreview(backgroundColor)
-    }
-  }, [backgroundColor, previewImage])
-
-  const renderPreview = (bgColor) => {
     if (!previewImage || !canvasRef.current) return
 
     const img = new Image()
     img.onload = () => {
       const canvas = canvasRef.current
+      if (!canvas) return
+
       const ctx = canvas.getContext('2d')
 
       // Fill with background color
-      ctx.fillStyle = bgColor
+      ctx.fillStyle = backgroundColor
       ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
       // Calculate dimensions for center cropping
@@ -49,7 +45,7 @@ const ImageUpload = ({ onImageUpload, onError }) => {
       ctx.drawImage(img, x, y, scaledWidth, scaledHeight)
     }
     img.src = previewImage
-  }
+  }, [backgroundColor, previewImage])
 
   const processImage = (file) => {
     // Validate file type
