@@ -189,6 +189,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       // Draw original image as background
       ctx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
+      // Fill original clip region with white to prevent overlap
+      ctx.fillStyle = '#FFFFFF'
+      ctx.fillRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+
       // Draw transformed clip region
       ctx.save()
 
@@ -501,6 +505,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         finalCtx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
         finalCtx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
+        // Fill original clip region with white to prevent overlap
+        finalCtx.fillStyle = '#FFFFFF'
+        finalCtx.fillRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
+
         // Draw transformed clip
         finalCtx.save()
 
@@ -577,6 +585,10 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
           // Draw original image as background
           tempCtx.drawImage(originalImg, 0, 0, CANVAS_SIZE, CANVAS_SIZE)
+
+          // Fill original clip region with white to prevent overlap
+          tempCtx.fillStyle = '#FFFFFF'
+          tempCtx.fillRect(clipRegion.x, clipRegion.y, clipRegion.width, clipRegion.height)
 
           // Draw transformed clip region (without dashed box)
           tempCtx.save()
