@@ -298,6 +298,11 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const finishClipEdit = () => {
     if (!canvasRef.current || !originalImage || !clipImageData) return
 
+    // Immediately reset UI states to prevent dashed lines from showing
+    setIsClipMode(false)
+    setIsEditingClip(false)
+    setClipRect(null)
+
     try {
       // Create final composite image
       const finalCanvas = document.createElement('canvas')
@@ -343,10 +348,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         const newImageData = finalCanvas.toDataURL('image/png')
         setBaseImage(newImageData)
 
-        // Reset clip mode completely
-        setIsClipMode(false)
-        setIsEditingClip(false)
-        setClipRect(null)
+        // Clean up remaining clip data
         setOriginalImage(null)
         setClipRegion(null)
         setClipImageData(null)
