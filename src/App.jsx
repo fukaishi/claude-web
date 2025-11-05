@@ -36,10 +36,10 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100 py-8">
-      <div className="container mx-auto px-4">
+    <div className="min-h-screen bg-gray-100 py-8 relative">
+      <div className="container mx-auto px-4 pb-16">
         <h1 className="text-4xl font-bold text-center mb-8 text-gray-800">
-          Generate GIF Animation
+          GIFアニメジェネレーター
         </h1>
 
         {error && (
@@ -92,6 +92,11 @@ function App() {
           />
         </div>
       </div>
+
+      {/* Footer - Copyright */}
+      <footer className="fixed bottom-4 right-4 text-sm text-gray-600">
+        &copy; 2025 GIFアニメジェネレーター
+      </footer>
     </div>
   )
 }
