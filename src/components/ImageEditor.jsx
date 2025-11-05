@@ -127,7 +127,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const drawNormalMode = (ctx) => {
     const img = new Image()
 
-    img.onload = () => {
+    const render = () => {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
       ctx.setLineDash([]) // Reset line dash to solid
 
@@ -182,7 +182,13 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
       }
     }
 
+    img.onload = render
     img.src = baseImage
+
+    // Handle cached images
+    if (img.complete) {
+      render()
+    }
   }
 
   const drawClipEditMode = (ctx) => {
@@ -711,7 +717,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           height={CANVAS_SIZE}
           className={`border border-gray-300 rounded ${
             isSelectingTransparency ? 'cursor-pointer' :
-            isClipMode && !isEditingClip ? 'cursor-crosshair' :
+            isClipMode && !isEditingClips ? 'cursor-crosshair' :
             'cursor-default'
           }`}
           onMouseDown={handleMouseDown}
@@ -779,7 +785,7 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
               </button>
             </div>
           </>
-        ) : !isEditingClip ? (
+        ) : !isEditingClips ? (
           <>
             {/* Normal Mode Controls */}
             <div className="flex items-center gap-2">
