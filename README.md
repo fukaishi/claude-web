@@ -1,4 +1,4 @@
-# Generate GIF Animation
+# GIFアニメジェネレーター
 
 ブラウザ上で完結する画像編集・GIFアニメーション生成ツール
 
