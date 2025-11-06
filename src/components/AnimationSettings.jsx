@@ -102,12 +102,15 @@ const AnimationSettings = ({ savedImages, onError }) => {
     setProgress(0)
 
     try {
+      // Use import.meta.env.BASE_URL to get the correct base path for GitHub Pages
+      const workerPath = `${import.meta.env.BASE_URL}gif.worker.js`
+
       const gif = new GIF({
         workers: 2,
         quality: 10,
         width: 512,
         height: 512,
-        workerScript: '/gif.worker.js'
+        workerScript: workerPath
       })
 
       gif.on('progress', (p) => {
