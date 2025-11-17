@@ -7,11 +7,13 @@ import './App.css'
 
 function App() {
   const [currentImage, setCurrentImage] = useState(null)
+  const [backgroundColor, setBackgroundColor] = useState('#FFFFFF')
   const [savedImages, setSavedImages] = useState([])
   const [error, setError] = useState('')
 
-  const handleImageUpload = (imageData) => {
+  const handleImageUpload = (imageData, bgColor) => {
     setCurrentImage(imageData)
+    setBackgroundColor(bgColor)
     setError('')
   }
 
@@ -64,6 +66,7 @@ function App() {
             </h2>
             <ImageEditor
               imageData={currentImage}
+              backgroundColor={backgroundColor}
               onSave={handleSaveImage}
               onError={handleError}
             />
