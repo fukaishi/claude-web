@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-const ImageEditor = ({ imageData, onSave, onError }) => {
+const ImageEditor = ({ imageData, backgroundColor = '#FFFFFF', onSave, onError }) => {
   const canvasRef = useRef(null)
   const [baseImage, setBaseImage] = useState(null)
 
@@ -26,6 +26,16 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
   const [transparencyColor, setTransparencyColor] = useState(null)
   const [transparencyThreshold, setTransparencyThreshold] = useState(30)
   const [pendingClipData, setPendingClipData] = useState(null) // Temporary storage during transparency selection
+
+  // Helper function to convert hex color to RGB
+  const hexToRgb = (hex) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 255, g: 255, b: 255 }
+  }
 
   // Fill (Paint Bucket) mode states
   const [isFillMode, setIsFillMode] = useState(false)
@@ -555,7 +565,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
         region: clips[nextIndex].region,
         imageData: clips[nextIndex].imageData
       })
-      setTransparencyColor(null)
+      // Set background color as default transparency color
+      setTransparencyColor(hexToRgb(backgroundColor))
       setTransparencyThreshold(30)
       // Stay in transparency selection mode
     } else {
@@ -677,7 +688,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
 
         // Enter transparency selection mode
         setIsSelectingTransparency(true)
-        setTransparencyColor(null)
+        // Set background color as default transparency color
+        setTransparencyColor(hexToRgb(backgroundColor))
         setTransparencyThreshold(30)
         setClipRect(null) // Clear selection rectangle
       }
@@ -753,7 +765,8 @@ const ImageEditor = ({ imageData, onSave, onError }) => {
           imageData: extractedClips[0].imageData
         })
         setIsSelectingTransparency(true)
-        setTransparencyColor(null)
+        // Set background color as default transparency color
+        setTransparencyColor(hexToRgb(backgroundColor))
         setTransparencyThreshold(30)
         setIsClipMode(false)
         setClipRects([])

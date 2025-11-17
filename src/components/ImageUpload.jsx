@@ -5,11 +5,22 @@ const ImageUpload = ({ onImageUpload, onError }) => {
   const canvasRef = useRef(null)
   const [isDragging, setIsDragging] = useState(false)
   const [previewImage, setPreviewImage] = useState(null)
+  const [backgroundColor, setBackgroundColor] = useState('#FFFFFF')
+  const [isPickingColor, setIsPickingColor] = useState(false)
 
   const CANVAS_SIZE = 512
   const MAX_FILE_SIZE = 10 * 1024 * 1024 // 10MB
 
-  // Render canvas when image is uploaded
+  // Preset background colors
+  const PRESET_COLORS = [
+    { name: '白', value: '#FFFFFF' },
+    { name: '黒', value: '#000000' },
+    { name: '緑', value: '#00FF00' },
+    { name: '青', value: '#0000FF' },
+    { name: '赤', value: '#FF0000' }
+  ]
+
+  // Render canvas when image is uploaded or background color changes
   useEffect(() => {
     if (!previewImage || !canvasRef.current) return
 
@@ -20,8 +31,8 @@ const ImageUpload = ({ onImageUpload, onError }) => {
 
       const ctx = canvas.getContext('2d')
 
-      // Fill with white background
-      ctx.fillStyle = '#FFFFFF'
+      // Fill with selected background color
+      ctx.fillStyle = backgroundColor
       ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
 
       // Calculate dimensions for center cropping
@@ -36,7 +47,7 @@ const ImageUpload = ({ onImageUpload, onError }) => {
       ctx.drawImage(img, x, y, scaledWidth, scaledHeight)
     }
     img.src = previewImage
-  }, [previewImage])
+  }, [previewImage, backgroundColor])
 
   const processImage = (file) => {
     // Validate file type
@@ -102,14 +113,35 @@ const ImageUpload = ({ onImageUpload, onError }) => {
     if (!canvasRef.current) return
 
     const dataUrl = canvasRef.current.toDataURL('image/png')
-    onImageUpload(dataUrl)
+    onImageUpload(dataUrl, backgroundColor)
 
     // Reset preview
     setPreviewImage(null)
+    setBackgroundColor('#FFFFFF')
+    setIsPickingColor(false)
   }
 
   const handleCancel = () => {
     setPreviewImage(null)
+    setBackgroundColor('#FFFFFF')
+    setIsPickingColor(false)
+  }
+
+  const handleCanvasClick = (e) => {
+    if (!isPickingColor || !canvasRef.current) return
+
+    const canvas = canvasRef.current
+    const rect = canvas.getBoundingClientRect()
+    const x = Math.floor((e.clientX - rect.left) * (CANVAS_SIZE / rect.width))
+    const y = Math.floor((e.clientY - rect.top) * (CANVAS_SIZE / rect.height))
+
+    const ctx = canvas.getContext('2d')
+    const imageData = ctx.getImageData(x, y, 1, 1)
+    const [r, g, b] = imageData.data
+
+    const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+    setBackgroundColor(hexColor.toUpperCase())
+    setIsPickingColor(false)
   }
 
   if (previewImage) {
@@ -121,13 +153,84 @@ const ImageUpload = ({ onImageUpload, onError }) => {
             ref={canvasRef}
             width={CANVAS_SIZE}
             height={CANVAS_SIZE}
-            className="border border-gray-300 rounded"
+            className={`border border-gray-300 rounded ${isPickingColor ? 'cursor-crosshair' : ''}`}
+            onClick={handleCanvasClick}
           />
         </div>
 
         <p className="text-sm text-gray-600 text-center">
           画像が512×512pxに自動調整されました
         </p>
+
+        {/* Background Color Settings */}
+        <div className="border border-gray-200 rounded-lg p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-gray-700">背景色設定</h3>
+
+          {/* Current Color Display */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">現在の背景色:</span>
+            <div
+              className="w-8 h-8 rounded border-2 border-gray-300"
+              style={{ backgroundColor }}
+            />
+            <span className="text-sm font-mono text-gray-700">{backgroundColor}</span>
+          </div>
+
+          {/* Preset Colors */}
+          <div className="space-y-2">
+            <label className="text-sm text-gray-600">プリセット色:</label>
+            <div className="flex gap-2 flex-wrap">
+              {PRESET_COLORS.map((color) => (
+                <button
+                  key={color.value}
+                  onClick={() => setBackgroundColor(color.value)}
+                  className={`px-3 py-1 rounded border-2 transition ${
+                    backgroundColor === color.value
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-300 hover:border-gray-400'
+                  }`}
+                  title={color.value}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-4 h-4 rounded border border-gray-400"
+                      style={{ backgroundColor: color.value }}
+                    />
+                    <span className="text-xs">{color.name}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Custom Color Picker */}
+          <div className="flex gap-2 items-center">
+            <label className="text-sm text-gray-600">カスタム色:</label>
+            <input
+              type="color"
+              value={backgroundColor}
+              onChange={(e) => setBackgroundColor(e.target.value.toUpperCase())}
+              className="w-12 h-8 rounded cursor-pointer"
+            />
+          </div>
+
+          {/* Pick from Image */}
+          <button
+            onClick={() => setIsPickingColor(!isPickingColor)}
+            className={`w-full px-4 py-2 rounded border-2 transition ${
+              isPickingColor
+                ? 'border-green-500 bg-green-50 text-green-700'
+                : 'border-gray-300 bg-white text-gray-700 hover:border-gray-400'
+            }`}
+          >
+            {isPickingColor ? '画像から色を選択中...' : '画像から色を取得'}
+          </button>
+          {isPickingColor && (
+            <p className="text-xs text-green-600 text-center">
+              画像上をクリックして色を選択してください
+            </p>
+          )}
+        </div>
 
         {/* Action Buttons */}
         <div className="flex gap-2">
